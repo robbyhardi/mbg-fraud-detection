@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from tensorflow.keras.models import load_model
 from sklearn.preprocessing import StandardScaler
+import io
 
 # =====================================================
 # PAGE CONFIG
@@ -12,6 +13,79 @@ st.set_page_config(
     page_icon="🕵️",
     layout="wide"
 )
+
+# =====================================================
+# TEMPLATE VALIDATION
+# =====================================================
+REQUIRED_COLUMNS = [
+    "qty_kirim",
+    "qty_terima",
+    "delay_jam",
+    "kalori",
+    "protein",
+    "karbo"
+]
+
+COLUMN_TYPES = {
+    "qty_kirim": "numeric",
+    "qty_terima": "numeric",
+    "delay_jam": "numeric",
+    "kalori": "numeric",
+    "protein": "numeric",
+    "karbo": "numeric"
+}
+
+def generate_template():
+    """Generate template CSV untuk download"""
+    template_data = {
+        "qty_kirim": [100, 150, 200],
+        "qty_terima": [98, 150, 195],
+        "delay_jam": [2, 0, 5],
+        "kalori": [2500, 3000, 2800],
+        "protein": [80, 90, 85],
+        "karbo": [300, 350, 320]
+    }
+    return pd.DataFrame(template_data)
+
+def validate_dataframe(df):
+    """
+    Validasi struktur dan tipe data DataFrame
+    Returns: (is_valid, error_messages)
+    """
+    errors = []
+    
+    # 1. Check missing columns
+    missing_cols = set(REQUIRED_COLUMNS) - set(df.columns)
+    if missing_cols:
+        errors.append(f"❌ Kolom wajib tidak ditemukan: {', '.join(missing_cols)}")
+    
+    # 2. Check empty dataframe
+    if df.empty:
+        errors.append("❌ File CSV kosong (tidak ada data)")
+    
+    # 3. Check data types
+    for col in REQUIRED_COLUMNS:
+        if col in df.columns:
+            if not pd.api.types.is_numeric_dtype(df[col]):
+                errors.append(f"❌ Kolom '{col}' harus berisi angka")
+    
+    # 4. Check for missing values
+    if df[REQUIRED_COLUMNS].isnull().any().any():
+        null_cols = df[REQUIRED_COLUMNS].columns[df[REQUIRED_COLUMNS].isnull().any()].tolist()
+        errors.append(f"⚠️ Ditemukan data kosong di kolom: {', '.join(null_cols)}")
+    
+    # 5. Check for negative values
+    for col in REQUIRED_COLUMNS:
+        if col in df.columns:
+            if (df[col] < 0).any():
+                errors.append(f"⚠️ Kolom '{col}' memiliki nilai negatif")
+    
+    # 6. Check reasonable data ranges
+    if "delay_jam" in df.columns:
+        if (df["delay_jam"] > 240).any():  # max 10 hari
+            errors.append("⚠️ Delay lebih dari 240 jam (10 hari) terdeteksi")
+    
+    return len(errors) == 0, errors
 
 # =====================================================
 # HEADER
@@ -34,13 +108,46 @@ def load_model_cached():
 model = load_model_cached()
 
 # =====================================================
-# SIDEBAR
+# SIDEBAR - TEMPLATE DOWNLOAD
+# =====================================================
+st.sidebar.header("📋 Template Data")
+
+template_df = generate_template()
+csv_buffer = io.StringIO()
+template_df.to_csv(csv_buffer, index=False)
+csv_string = csv_buffer.getvalue()
+
+st.sidebar.download_button(
+    label="⬇️ Download Template CSV",
+    data=csv_string,
+    file_name="mbg_template.csv",
+    mime="text/csv",
+    help="Download template untuk format data yang benar"
+)
+
+st.sidebar.markdown(
+    """
+    **Format Template:**
+    - `qty_kirim` (angka)
+    - `qty_terima` (angka)
+    - `delay_jam` (angka)
+    - `kalori` (angka)
+    - `protein` (angka)
+    - `karbo` (angka)
+    """
+)
+
+st.sidebar.markdown("---")
+
+# =====================================================
+# SIDEBAR - UPLOAD
 # =====================================================
 st.sidebar.header("⚙️ Pengaturan Analisis")
 
 uploaded_file = st.sidebar.file_uploader(
     "📤 Upload Data (CSV)",
-    type=["csv"]
+    type=["csv"],
+    help="Upload file CSV sesuai template"
 )
 
 percentile = st.sidebar.slider(
@@ -59,11 +166,50 @@ st.sidebar.caption(
 )
 
 # =====================================================
-# LOAD DATA
+# LOAD & VALIDATE DATA
 # =====================================================
+df = None
+
 if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    st.success("✅ Data berhasil diunggah")
+    try:
+        # Read CSV with size limit (10MB)
+        file_size = uploaded_file.size
+        if file_size > 10 * 1024 * 1024:  # 10 MB
+            st.error("❌ File terlalu besar! Maksimal 10 MB")
+            st.stop()
+        
+        # Load dataframe
+        df = pd.read_csv(uploaded_file)
+        
+        # Validate
+        is_valid, errors = validate_dataframe(df)
+        
+        if not is_valid:
+            st.error("### ⛔ Validasi Data Gagal")
+            for error in errors:
+                st.warning(error)
+            
+            st.info("💡 **Solusi:** Download template yang benar dari sidebar")
+            st.stop()
+        else:
+            st.success(f"✅ Data berhasil diunggah ({len(df)} baris)")
+            
+            # Show warning if any
+            if any("⚠️" in e for e in errors):
+                with st.expander("⚠️ Peringatan Data"):
+                    for error in errors:
+                        if "⚠️" in error:
+                            st.warning(error)
+    
+    except pd.errors.EmptyDataError:
+        st.error("❌ File CSV kosong atau tidak valid")
+        st.stop()
+    except pd.errors.ParserError:
+        st.error("❌ Format CSV tidak valid. Pastikan menggunakan delimiter koma (,)")
+        st.stop()
+    except Exception as e:
+        st.error(f"❌ Error membaca file: {str(e)}")
+        st.stop()
 else:
     st.info("ℹ️ Menggunakan data contoh (demo)")
     df = pd.read_csv("mbg_synthetic.csv")
@@ -71,19 +217,7 @@ else:
 # =====================================================
 # FEATURE SELECTION
 # =====================================================
-features = [
-    "qty_kirim",
-    "qty_terima",
-    "delay_jam",
-    "kalori",
-    "protein",
-    "karbo"
-]
-
-missing = [f for f in features if f not in df.columns]
-if missing:
-    st.error(f"❌ Kolom berikut tidak ditemukan: {missing}")
-    st.stop()
+features = REQUIRED_COLUMNS
 
 X = df[features]
 
