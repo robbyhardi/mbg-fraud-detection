@@ -4,7 +4,7 @@ pandas==2.2.3
 numpy==1.26.4
 
 # Machine Learning
-tensorflow==2.18.0
+tensorflow==2.20.0
 scikit-learn==1.6.0
 
 # Visualization
