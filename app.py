@@ -79,7 +79,7 @@ if mode == "Upload Data Baru":
         st.stop()
     df = pd.read_csv(uploaded_file)
 else:
-    df = pd.read_csv("sample_data.csv")
+    df = pd.read_csv("mbg_synthetic.csv")
 
 # ==============================
 # FEATURE SELECTION
