@@ -3,88 +3,75 @@ import pandas as pd
 import numpy as np
 from tensorflow.keras.models import load_model
 from sklearn.preprocessing import StandardScaler
-import matplotlib.pyplot as plt
 
-# ==============================
-# CONFIG
-# ==============================
+# =====================================================
+# PAGE CONFIG
+# =====================================================
 st.set_page_config(
-    page_title="MBG Risk Monitoring",
+    page_title="MBG Fraud Detection",
+    page_icon="🕵️",
     layout="wide"
 )
 
-# ==============================
-# LOAD MODEL
-# ==============================
+# =====================================================
+# HEADER
+# =====================================================
+st.title("🕵️ MBG Fraud Detection Dashboard")
+st.markdown(
+    """
+    Dashboard ini membantu **mengidentifikasi transaksi yang menyimpang**
+    berdasarkan **pola normal historis**, menggunakan **Autoencoder (unsupervised learning)**.
+    """
+)
+
+# =====================================================
+# LOAD MODEL (CACHE)
+# =====================================================
 @st.cache_resource
 def load_model_cached():
     return load_model("autoencoder.h5", compile=False)
 
 model = load_model_cached()
 
-# ==============================
-# UTILITIES
-# ==============================
-def preprocess(df, feature_cols):
-    scaler = StandardScaler()
-    return scaler.fit_transform(df[feature_cols])
+# =====================================================
+# SIDEBAR
+# =====================================================
+st.sidebar.header("⚙️ Pengaturan Analisis")
 
-def reconstruction_error(x, x_pred):
-    return np.mean(np.square(x - x_pred), axis=1)
-
-# ==============================
-# HEADER
-# ==============================
-st.title("🍱 MBG Risk Monitoring Dashboard")
-st.caption("Early Warning System untuk Deteksi Penyimpangan Distribusi & Gizi")
-
-st.info(
-    "Dashboard ini membantu mengidentifikasi **pola distribusi dan gizi yang tidak biasa** "
-    "berdasarkan data operasional MBG. "
-    "Hasil bersifat **indikatif** dan digunakan untuk mendukung audit berbasis risiko, "
-    "bukan sebagai keputusan final."
+uploaded_file = st.sidebar.file_uploader(
+    "📤 Upload Data (CSV)",
+    type=["csv"]
 )
 
-# ==============================
-# CONTROL PANEL
-# ==============================
-st.subheader("⚙️ Pengaturan Analisis")
+percentile = st.sidebar.slider(
+    "🎯 Ambang Risiko (Percentile)",
+    min_value=90,
+    max_value=99,
+    value=95,
+    step=1,
+    help="Semakin tinggi, semakin ketat deteksi anomali"
+)
 
-col1, col2 = st.columns(2)
+st.sidebar.markdown("---")
+st.sidebar.caption(
+    "Model akan menandai data dengan tingkat penyimpangan "
+    "di atas ambang sebagai **anomali**."
+)
 
-with col1:
-    mode = st.radio(
-        "Mode Analisis",
-        ["Demo (Data Contoh)", "Upload Data Baru"]
-    )
-
-with col2:
-    percentile = st.slider(
-        "Ambang Risiko (Percentile)",
-        min_value=90,
-        max_value=99,
-        value=95,
-        help="Semakin tinggi ambang, semakin sedikit transaksi yang ditandai."
-    )
-
-# ==============================
+# =====================================================
 # LOAD DATA
-# ==============================
-if mode == "Upload Data Baru":
-    uploaded_file = st.file_uploader(
-        "Upload data distribusi MBG (CSV)",
-        type=["csv"]
-    )
-    if uploaded_file is None:
-        st.stop()
+# =====================================================
+if uploaded_file:
     df = pd.read_csv(uploaded_file)
+    st.success("✅ Data berhasil diunggah")
 else:
+    st.info("ℹ️ Menggunakan data contoh (demo)")
     df = pd.read_csv("mbg_synthetic.csv")
 
-# ==============================
+# =====================================================
 # FEATURE SELECTION
-# ==============================
-feature_cols = [
+# =====================================================
+features = [
     "qty_kirim",
     "qty_terima",
     "delay_jam",
@@ -93,89 +80,113 @@ feature_cols = [
     "karbo"
 ]
 
-missing_cols = [c for c in feature_cols if c not in df.columns]
-if missing_cols:
-    st.error(f"Kolom berikut tidak ditemukan: {missing_cols}")
+missing = [f for f in features if f not in df.columns]
+if missing:
+    st.error(f"❌ Kolom berikut tidak ditemukan: {missing}")
     st.stop()
 
-# ==============================
-# INFERENCE
-# ==============================
-X = preprocess(df, feature_cols)
-X_pred = model.predict(X, verbose=0)
+X = df[features]
 
-df["risk_score"] = reconstruction_error(X, X_pred)
+# =====================================================
+# PREPROCESS
+# =====================================================
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
 
-threshold = np.percentile(df["risk_score"], percentile)
+# =====================================================
+# AUTOENCODER PREDICTION
+# =====================================================
+X_pred = model.predict(X_scaled, verbose=0)
+reconstruction_error = np.mean(np.square(X_scaled - X_pred), axis=1)
+
+df["risk_score"] = reconstruction_error
+
+# =====================================================
+# THRESHOLD
+# =====================================================
+threshold = np.percentile(reconstruction_error, percentile)
 df["risk_level"] = np.where(
-    df["risk_score"] >= threshold,
-    "🔴 Perlu Ditinjau",
-    "🟢 Normal"
+    df["risk_score"] > threshold,
+    "Anomali",
+    "Normal"
 )
 
-# ==============================
-# SUMMARY
-# ==============================
-st.subheader("📊 Ringkasan")
+# =====================================================
+# KPI SECTION
+# =====================================================
+col1, col2, col3 = st.columns(3)
 
-c1, c2, c3 = st.columns(3)
-
-c1.metric("Total Transaksi", len(df))
-c2.metric(
-    "Perlu Ditinjau",
-    int((df["risk_level"] == "🔴 Perlu Ditinjau").sum())
+col1.metric(
+    "📊 Total Data",
+    len(df)
 )
 
-status_text = "Mayoritas data dalam batas wajar"
-if (df["risk_level"] == "🔴 Perlu Ditinjau").sum() > 0:
-    status_text = "Terdapat transaksi yang memerlukan perhatian"
+col2.metric(
+    "🚨 Anomali Terdeteksi",
+    int((df["risk_level"] == "Anomali").sum())
+)
 
-c3.metric("Status Umum", status_text)
+col3.metric(
+    "🎯 Ambang Risiko",
+    f"{threshold:.4f}"
+)
 
-# ==============================
-# VISUALIZATION
-# ==============================
-st.subheader("📈 Distribusi Tingkat Penyimpangan")
+# =====================================================
+# CHART
+# =====================================================
+st.subheader("📈 Pola Penyimpangan Transaksi")
 
-fig, ax = plt.subplots()
-ax.plot(df["risk_score"].values, label="Tingkat Penyimpangan")
-ax.axhline(threshold, color="red", linestyle="--", label="Ambang Risiko")
-ax.set_ylabel("Skor Penyimpangan")
-ax.set_xlabel("Indeks Transaksi")
-ax.legend()
+chart_df = df[["risk_score"]].copy()
+chart_df["threshold"] = threshold
 
-st.pyplot(fig)
+st.line_chart(chart_df)
 
-# ==============================
+st.caption(
+    "Setiap titik mewakili satu transaksi. "
+    "Transaksi di atas ambang dianggap menyimpang dari pola normal."
+)
+
+# =====================================================
 # ANOMALY TABLE
-# ==============================
-st.subheader("🔍 Transaksi yang Perlu Ditinjau")
+# =====================================================
+st.subheader("🔍 Daftar Transaksi Anomali")
 
-risk_df = df[df["risk_level"] == "🔴 Perlu Ditinjau"].copy()
+anom_df = df[df["risk_level"] == "Anomali"]
 
-if risk_df.empty:
-    st.success("Tidak ada transaksi yang perlu ditinjau pada ambang risiko ini.")
+if len(anom_df) == 0:
+    st.success("🎉 Tidak ada anomali terdeteksi")
 else:
-    st.write(
-        "Daftar berikut menunjukkan transaksi dengan pola yang "
-        "**berbeda dari kebiasaan normal** dan disarankan untuk ditinjau lebih lanjut."
-    )
     st.dataframe(
-        risk_df[
-            feature_cols + ["risk_score", "risk_level"]
-        ].sort_values("risk_score", ascending=False),
+        anom_df.sort_values("risk_score", ascending=False),
         use_container_width=True
     )
 
-# ==============================
-# DOWNLOAD
-# ==============================
-st.subheader("⬇️ Unduh Hasil")
+# =====================================================
+# EXPLANATION
+# =====================================================
+st.markdown("---")
+st.subheader("🧠 Cara Membaca Dashboard Ini")
 
-csv = df.to_csv(index=False).encode("utf-8")
-st.download_button(
-    "Download hasil analisis (CSV)",
-    csv,
-    "hasil_analisis_mbg.csv",
-    "text/csv"
+st.markdown(
+    """
+    **1️⃣ Risk Score**  
+    Menunjukkan seberapa jauh suatu transaksi menyimpang dari pola normal historis.
+
+    **2️⃣ Anomali ≠ Fraud**  
+    Anomali adalah **peringatan awal**, bukan keputusan final.
+
+    **3️⃣ Threshold**  
+    Ambang risiko dapat disesuaikan sesuai kebijakan audit.
+
+    **4️⃣ Validasi Domain**  
+    Hasil akhir **harus dikonfirmasi oleh auditor / tim operasional**.
+    """
+)
+
+# =====================================================
+# FOOTER
+# =====================================================
+st.markdown("---")
+st.caption(
+    "MBG Fraud Detection • Autoencoder-based Anomaly Detection • Streamlit Dashboard"
 )
