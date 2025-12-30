@@ -1,19 +1,21 @@
 # Core Dependencies
-streamlit==1.40.0
-pandas==2.2.3
-numpy==1.26.4
+streamlit
+pandas
+numpy
 
 # Machine Learning
 tensorflow==2.20.0
-scikit-learn==1.6.0
+scikit-learn
 
 # Visualization
-matplotlib==3.9.3
-seaborn==0.13.2
+matplotlib
+seaborn
 
 # Model Persistence (pilih salah satu)
 # pickle sudah built-in di Python, tidak perlu install
 # joblib (opsional, jika mau alternatif pickle)
 
+joblib
+
 # Optional: Progress bars
-tqdm==4.67.1
+tqdm
