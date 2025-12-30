@@ -85,6 +85,21 @@ def validate_dataframe(df):
         if (df["delay_jam"] > 240).any():  # max 10 hari
             errors.append("⚠️ Delay lebih dari 240 jam (10 hari) terdeteksi")
     
+    # 7. Business rule: qty_terima tidak boleh lebih besar dari qty_kirim
+    if "qty_kirim" in df.columns and "qty_terima" in df.columns:
+        invalid_qty = (df["qty_terima"] > df["qty_kirim"]).sum()
+        if invalid_qty > 0:
+            errors.append(f"⚠️ Ditemukan {invalid_qty} transaksi dengan qty_terima > qty_kirim")
+    
+    # 8. Check for duplicate rows
+    duplicates = df.duplicated().sum()
+    if duplicates > 0:
+        errors.append(f"⚠️ Ditemukan {duplicates} baris duplikat")
+    
+    # 9. Check minimum data requirement
+    if len(df) < 10:
+        errors.append("❌ Data terlalu sedikit (minimal 10 transaksi untuk analisis)")
+    
     return len(errors) == 0, errors
 
 # =====================================================
