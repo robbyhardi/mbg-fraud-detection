@@ -11,11 +11,11 @@ st.caption("Machine Learning-based Anomaly Detection Prototype")
 
 @st.cache_resource
 def load_model_cached():
-    return load_model("model/autoencoder.h5")
+    return load_model("autoencoder.h5")
 
 @st.cache_data
 def load_data():
-    return pd.read_csv("data/mbg_synthetic.csv")
+    return pd.read_csv("mbg_synthetic.csv")
 
 data = load_data()
 model = load_model_cached()
