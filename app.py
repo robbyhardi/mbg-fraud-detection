@@ -11,7 +11,7 @@ st.caption("Machine Learning-based Anomaly Detection Prototype")
 
 @st.cache_resource
 def load_model_cached():
-    return load_model("autoencoder.h5")
+    return load_model("autoencoder.h5", compile=False)
 
 @st.cache_data
 def load_data():
