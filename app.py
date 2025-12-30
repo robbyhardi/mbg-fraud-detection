@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from tensorflow.keras.models import load_model
-from sklearn.preprocessing import StandardScaler
+import pickle
 import io
 
 # =====================================================
@@ -114,13 +114,32 @@ st.markdown(
 )
 
 # =====================================================
-# LOAD MODEL (CACHE)
+# LOAD MODEL & SCALER (CACHE)
 # =====================================================
 @st.cache_resource
 def load_model_cached():
-    return load_model("autoencoder.h5", compile=False)
+    try:
+        model = load_model("autoencoder.h5", compile=False)
+        model.compile(optimizer="adam", loss="mse")
+        return model
+    except Exception as e:
+        st.error(f"❌ Error loading model: {str(e)}")
+        st.stop()
+
+@st.cache_resource
+def load_scaler_cached():
+    try:
+        with open("scaler.pkl", "rb") as f:
+            return pickle.load(f)
+    except FileNotFoundError:
+        st.error("❌ File scaler.pkl tidak ditemukan. Jalankan train_model.py terlebih dahulu.")
+        st.stop()
+    except Exception as e:
+        st.error(f"❌ Error loading scaler: {str(e)}")
+        st.stop()
 
 model = load_model_cached()
+scaler = load_scaler_cached()  # ✅ LOAD SCALER DARI FILE
 
 # =====================================================
 # SIDEBAR - TEMPLATE DOWNLOAD
@@ -226,8 +245,18 @@ if uploaded_file:
         st.error(f"❌ Error membaca file: {str(e)}")
         st.stop()
 else:
-    st.info("ℹ️ Menggunakan data contoh (demo)")
-    df = pd.read_csv("mbg_synthetic.csv")
+    # ✅ LOAD DEMO DATA (dengan label untuk validasi)
+    try:
+        st.info("ℹ️ Menggunakan data contoh (demo)")
+        df = pd.read_csv("mbg_synthetic.csv")
+        
+        # Limit demo data untuk performance
+        if len(df) > 1000:
+            df = df.sample(1000, random_state=42)
+            st.caption(f"📊 Menampilkan sample 1,000 dari {len(df):,} total transaksi")
+    except FileNotFoundError:
+        st.error("❌ File mbg_synthetic.csv tidak ditemukan. Jalankan generate_data.py terlebih dahulu.")
+        st.stop()
 
 # =====================================================
 # FEATURE SELECTION
@@ -239,8 +268,8 @@ X = df[features]
 # =====================================================
 # PREPROCESS
 # =====================================================
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+# ✅ GUNAKAN SCALER DARI FILE (BUKAN FIT_TRANSFORM)
+X_scaled = scaler.transform(X)  # transform saja, konsisten dengan training!
 
 # =====================================================
 # AUTOENCODER PREDICTION
@@ -263,22 +292,54 @@ df["risk_level"] = np.where(
 # =====================================================
 # KPI SECTION
 # =====================================================
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
 col1.metric(
     "📊 Total Data",
-    len(df)
+    f"{len(df):,}"
 )
 
 col2.metric(
     "🚨 Anomali Terdeteksi",
-    int((df["risk_level"] == "Anomali").sum())
+    f"{int((df['risk_level'] == 'Anomali').sum()):,}"
 )
 
 col3.metric(
     "🎯 Ambang Risiko",
     f"{threshold:.4f}"
 )
+
+# ✅ TAMBAHAN: Jika ada label ground truth, tampilkan akurasi
+if "is_fraud" in df.columns:
+    from sklearn.metrics import precision_score, recall_score, f1_score
+    
+    y_true = df["is_fraud"]
+    y_pred = (df["risk_level"] == "Anomali").astype(int)
+    
+    precision = precision_score(y_true, y_pred, zero_division=0)
+    
+    col4.metric(
+        "✅ Precision",
+        f"{precision:.2%}",
+        help="Dari semua yang diprediksi fraud, berapa persen yang benar"
+    )
+    
+    # Show additional metrics in expander
+    with st.expander("📊 Lihat Metrics Detail"):
+        metric_col1, metric_col2, metric_col3 = st.columns(3)
+        
+        recall = recall_score(y_true, y_pred, zero_division=0)
+        f1 = f1_score(y_true, y_pred, zero_division=0)
+        
+        metric_col1.metric("Precision", f"{precision:.2%}")
+        metric_col2.metric("Recall", f"{recall:.2%}")
+        metric_col3.metric("F1-Score", f"{f1:.2%}")
+        
+        st.caption(
+            "**Precision**: Seberapa akurat prediksi anomali | "
+            "**Recall**: Seberapa lengkap mendeteksi fraud | "
+            "**F1**: Harmonic mean dari precision & recall"
+        )
 
 # =====================================================
 # CHART
@@ -300,14 +361,38 @@ st.caption(
 # =====================================================
 st.subheader("🔍 Daftar Transaksi Anomali")
 
-anom_df = df[df["risk_level"] == "Anomali"]
+anom_df = df[df["risk_level"] == "Anomali"].copy()
 
 if len(anom_df) == 0:
     st.success("🎉 Tidak ada anomali terdeteksi")
 else:
+    # Sort by risk score descending
+    anom_df = anom_df.sort_values("risk_score", ascending=False)
+    
+    # Add rank
+    anom_df.insert(0, "Rank", range(1, len(anom_df) + 1))
+    
+    # Display columns
+    display_cols = ["Rank"] + features + ["risk_score"]
+    
+    # ✅ Jika ada ground truth, tambahkan kolom validasi
+    if "is_fraud" in df.columns:
+        anom_df["actual_fraud"] = anom_df["is_fraud"].map({0: "❌ Normal", 1: "✅ Fraud"})
+        display_cols.append("actual_fraud")
+    
     st.dataframe(
-        anom_df.sort_values("risk_score", ascending=False),
-        use_container_width=True
+        anom_df[display_cols],
+        use_container_width=True,
+        height=400
+    )
+    
+    # Download button for anomalies
+    csv_anomalies = anom_df.to_csv(index=False)
+    st.download_button(
+        label="⬇️ Download Anomali (CSV)",
+        data=csv_anomalies,
+        file_name="mbg_anomalies.csv",
+        mime="text/csv"
     )
 
 # =====================================================
@@ -320,15 +405,22 @@ st.markdown(
     """
     **1️⃣ Risk Score**  
     Menunjukkan seberapa jauh suatu transaksi menyimpang dari pola normal historis.
+    Semakin tinggi nilai, semakin anomali transaksi tersebut.
 
     **2️⃣ Anomali ≠ Fraud**  
-    Anomali adalah **peringatan awal**, bukan keputusan final.
+    Anomali adalah **peringatan awal**, bukan keputusan final. Perlu validasi oleh auditor.
 
-    **3️⃣ Threshold**  
-    Ambang risiko dapat disesuaikan sesuai kebijakan audit.
+    **3️⃣ Threshold (Ambang Batas)**  
+    Threshold dapat disesuaikan via slider di sidebar. Threshold tinggi = deteksi lebih ketat.
 
-    **4️⃣ Validasi Domain**  
-    Hasil akhir **harus dikonfirmasi oleh auditor / tim operasional**.
+    **4️⃣ Validasi Domain Expert**  
+    Hasil akhir **harus dikonfirmasi oleh auditor / tim operasional** sebelum tindakan diambil.
+    
+    **5️⃣ Interpretasi Risk Score**
+    - `< 0.01`: Transaksi sangat normal
+    - `0.01 - 0.05`: Normal dengan variasi wajar
+    - `0.05 - 0.10`: Perlu perhatian
+    - `> 0.10`: Anomali signifikan
     """
 )
 
@@ -337,5 +429,6 @@ st.markdown(
 # =====================================================
 st.markdown("---")
 st.caption(
-    "MBG Fraud Detection • Autoencoder-based Anomaly Detection • Streamlit Dashboard"
+    "MBG Fraud Detection • Autoencoder-based Anomaly Detection • Streamlit Dashboard • "
+    f"Model Version 1.0 • Last Updated: December 30, 2024"
 )
