@@ -410,6 +410,17 @@ st.markdown(
     **2️⃣ Anomali ≠ Fraud**  
     Anomali adalah **peringatan awal**, bukan keputusan final. Perlu validasi oleh auditor.
 
+    > 📌 **Catatan Penting**: Kolom `actual_fraud` (✅ Fraud / ❌ Normal) yang muncul di demo data 
+    > adalah **simulasi untuk validasi model**. Dalam penggunaan real, kolom ini **harus diisi manual** 
+    > oleh auditor setelah melakukan investigasi menyeluruh terhadap transaksi yang di-flag sebagai anomali.
+    > 
+    > **Proses Validasi**:
+    > 1. Model mendeteksi anomali (otomatis)
+    > 2. Auditor investigasi transaksi (manual)
+    > 3. Auditor memutuskan: Fraud atau Bukan Fraud (manual)
+    > 4. Keputusan auditor di-input ke kolom `actual_fraud` (manual)
+    > 5. Data digunakan untuk improve model (retraining)
+
     **3️⃣ Threshold (Ambang Batas)**  
     Threshold dapat disesuaikan via slider di sidebar. Threshold tinggi = deteksi lebih ketat.
 
@@ -430,5 +441,5 @@ st.markdown(
 st.markdown("---")
 st.caption(
     "MBG Fraud Detection • Autoencoder-based Anomaly Detection • Streamlit Dashboard • "
-    f"Model Version 1.0 • Last Updated: December 30, 2024"
+    f"Model Version 1.0 • Last Updated: December 30, 2025"
 )
