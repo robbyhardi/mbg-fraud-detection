@@ -203,6 +203,7 @@ st.sidebar.caption(
 # LOAD & VALIDATE DATA
 # =====================================================
 df = None
+original_count = 0  # ✅ TAMBAHAN: Track original count
 
 if uploaded_file:
     try:
@@ -214,6 +215,7 @@ if uploaded_file:
         
         # Load dataframe
         df = pd.read_csv(uploaded_file)
+        original_count = len(df)  # ✅ Simpan count asli
         
         # Validate
         is_valid, errors = validate_dataframe(df)
@@ -249,11 +251,12 @@ else:
     try:
         st.info("ℹ️ Menggunakan data contoh (demo)")
         df = pd.read_csv("mbg_synthetic.csv")
+        original_count = len(df)  # ✅ SIMPAN COUNT ASLI (10,000)
         
         # Limit demo data untuk performance
         if len(df) > 1000:
             df = df.sample(1000, random_state=42)
-            st.caption(f"📊 Menampilkan sample 1,000 dari {len(df):,} total transaksi")
+            st.caption(f"📊 Menampilkan sample 1,000 dari {original_count:,} total transaksi")
     except FileNotFoundError:
         st.error("❌ File mbg_synthetic.csv tidak ditemukan. Jalankan generate_data.py terlebih dahulu.")
         st.stop()
@@ -296,12 +299,12 @@ col1, col2, col3, col4 = st.columns(4)
 
 col1.metric(
     "📊 Total Data",
-    f"{len(df):,}"
+    f"{original_count:,}"  # ✅ GUNAKAN original_count (10,000)
 )
 
 col2.metric(
     "🚨 Anomali Terdeteksi",
-    f"{int((df['risk_level'] == 'Anomali').sum()):,}"
+    f"{int((df['risk_level'] == 'Anomali').sum()):,}"  # Dari sample (1,000)
 )
 
 col3.metric(
